@@ -18,6 +18,10 @@ TODO — 几句话；细节在 `code/` 和 `docs/`。
 
 TODO — 写完分析再填；限定（exploratory、小 ROI、operator 不对称…）必须出现在这里。
 
+## 输出规划 / Expected outputs
+
+- TODO — 将产出哪些文件，按模式写（`<subj>` 按被试表展开，`{01..10}` 展开），与登记块的 `EXPECT` 一致；跑完用 `DocsManagement plan [ID]` 看 ✓/✗
+
 ## 报告 / Report
 
 - 完整叙述：TODO（`REPORT.md` 或 `docs/NOTES_*.md`，与 PROVENANCE 的 REPORT 字段一致）

@@ -37,6 +37,7 @@ analyses/*/figures/
 *.BRIK.gz
 *.HEAD
 *.mat
+DocsManagement/.keycache.json
 __pycache__/
 *_tmp/
 .ipynb_checkpoints/

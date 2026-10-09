@@ -18,6 +18,10 @@ TODO — 第几代产物、什么方法、和上一代的区别一句话。
 - 被试集：TODO（n、名单、排除及理由）
 - 参数：TODO（例：稀疏化 top-10%、成分数 10、alpha 0.5、seed 42）
 
+## 输出规划 / Expected outputs
+
+- TODO — 将产出哪些文件，按模式写（`<subj>` 按被试表展开，`{01..10}` 展开），与登记块的 `EXPECT` 一致；跑完用 `DocsManagement plan [ID]` 看 ✓/✗
+
 ## 输出布局 / Layout
 
 - TODO（文件名模式 → 内容、形状、dtype；组级与被试级分开写）

@@ -42,3 +42,11 @@ scripts = ["writing/abstract/check_readme.py", "abstract/check_readme.py"]
 # If a real CLAUDE.md already exists, init keeps it canonical and links the others to it.
 instructions = "AGENTS.md"
 aliases = ["CLAUDE.md", "GEMINI.md"]
+
+[subjects]
+# Subject table used to expand <subj> in EXPECT patterns (empty = no expansion, <subj> becomes *).
+file = ""                 # e.g. "inputs/subjects/analysis_subjects_22.csv"
+column = "subject"
+
+[plan]
+scan_depth = 3            # how deep `strict` EXPECT looks for unexpected files

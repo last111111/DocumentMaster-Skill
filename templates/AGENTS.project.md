@@ -1,7 +1,7 @@
 # {name} — 项目规范（AGENTS.md）
 
 给所有进入本项目的 agent（Claude Code、Codex、Gemini CLI、Cursor …）和人。`CLAUDE.md`、`GEMINI.md` 是指向本文件的链接，内容只有这一份。
-本项目用 DocsManagement 管理目录与溯源。**动任何目录前先读 `DocsManagement/SKILL.md`**（它开头的 `---` 元数据是 Claude Code 用的，其它 agent 忽略即可）。
+本项目用 DocsManagement 管理目录与溯源。**动任何目录前先读 `DocsManagement/SKILL.md`**（50 行；它开头的 `---` 元数据是 Claude Code 用的，其它 agent 忽略即可）；字段和校验的细节在 `DocsManagement/SPEC.md`。
 回复用中文；代码、注释、文件内容用英文（除非另有要求）。
 
 ## 先看哪里
@@ -19,7 +19,7 @@
 
 `inputs/`（只读）· `derivatives/`（流程产物，按代）· `analyses/`（一问一目录）· `writing/` · `archive/` · `skills/` · `docs/`
 
-- 新分析：`DocsManagement new <问题>`，不手建
+- 要产出东西先 `DocsManagement plan --new <路径> --expect …`；新分析：`DocsManagement new <问题>`，不手建
 - 不新建顶层目录；不 `rm`（用 `DocsManagement trash`）；不手改 `README.md`；不往 `inputs/`、`derivatives/` 写
 - 删除、覆盖、改被试集、动远端数据——先列清单问人
 
