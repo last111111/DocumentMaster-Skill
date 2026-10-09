@@ -1,0 +1,44 @@
+# DocsManagement project rules. Data, not code: change this file, not the engine.
+# Every key has a default inside the engine; only override what differs.
+
+[layout]
+# Layers: every first-level directory under these gets exactly one block in PROVENANCE.txt.
+layers = ["inputs", "derivatives", "analyses", "writing", "archive"]
+# Anything else at the project root is reported as top_level_stray.
+top_level_allowed = ["inputs", "skills", "derivatives", "analyses", "writing", "archive", "docs",
+                     "DocsManagement", "CLAUDE.md", "AGENTS.md", "README.md", ".gitignore", ".git",
+                     ".claude", ".goal-task"]
+# During a migration, symlinks left at old locations are fine.
+transition_symlinks_ok = true
+# true: strays are red (block commits). false: strays are yellow (use while reorganising).
+top_level_strict = true
+
+[analysis_template]
+dirs = ["code", "data", "stats", "figures", "per_subject", "validation", "docs"]
+date_suffix = true          # `new foo` -> analyses/foo_YYYY-MM-DD/
+
+[naming]
+forbidden_chars = [" ", "(", ")", ":"]      # AFNI breaks on parentheses; "stdout:" made junk files once
+
+[git]
+max_file_mb = 20
+binary_ext = [".npy", ".npz", ".h5", ".hdf5", ".nii", ".nii.gz", ".BRIK", ".BRIK.gz", ".HEAD", ".mat"]
+
+[paths]
+legacy_patterns = ["/mnt/mydisk"]           # dead paths from the previous machine
+legacy_level = "red"                        # "yellow" while old scripts are still being fixed
+scan_dirs = ["skills", "analyses/*/code"]  # where to look for them (code only, not prose)
+scan_ext = [".py", ".sh", ".R", ".txt", ".csv", ".tsv", ".json", ".env"]
+
+[ids]
+prefix = { inputs = "I", derivatives = "D", analyses = "A", writing = "W", archive = "X" }
+
+[checks]
+# External checkers run by `status`; non-zero exit is red. Relative to the project root.
+scripts = ["writing/abstract/check_readme.py", "abstract/check_readme.py"]
+
+[agents]
+# The one instructions file every agent reads; the aliases are symlinks to it.
+# If a real CLAUDE.md already exists, init keeps it canonical and links the others to it.
+instructions = "AGENTS.md"
+aliases = ["CLAUDE.md", "GEMINI.md"]

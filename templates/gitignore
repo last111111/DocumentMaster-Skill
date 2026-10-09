@@ -1,0 +1,42 @@
+# DocsManagement allowlist: everything is ignored unless listed below.
+*
+!*/
+# Data trees: prune everything inside each registered directory (git does not descend) ...
+inputs/*/*
+derivatives/*/*
+archive/*/*
+analyses/*/data/
+analyses/*/figures/
+# ... then allow the tracked set.
+!.gitignore
+!CLAUDE.md
+!AGENTS.md
+!README.md
+!DocsManagement/**
+!skills/**
+!docs/**
+!writing/**
+!analyses/*/README.md
+!analyses/*/code/**
+!analyses/*/docs/**
+!analyses/*/stats/**
+!analyses/*/validation/**
+!analyses/*/per_subject/**
+# Each registered data directory keeps its description in git.
+!inputs/*/README.md
+!derivatives/*/README.md
+!archive/*/README.md
+# Never, even inside allowed directories.
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.nii
+*.nii.gz
+*.BRIK
+*.BRIK.gz
+*.HEAD
+*.mat
+__pycache__/
+*_tmp/
+.ipynb_checkpoints/
