@@ -41,8 +41,8 @@ DATE_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})$")
 FIELD_ORDER = ["ROLE", "QUESTION", "DESC", "INPUTS", "EXPECT", "CODE", "KEY", "STATUS", "REPORT", "REMOTE", "NOTE", "USED_BY"]
 STATUS_VALUES = {"planned", "active", "final", "exploratory", "archived", "trashed"}
 ROLE_OF = {"inputs": "input", "derivatives": "derivative", "analyses": "analysis", "writing": "writing", "archive": "archive"}
-PATHMAP_HEADER = "timestamp\top\told\tnew\n"
-DELETED_HEADER = "timestamp\tpath\tsha256\tbytes\tfiles\ttrash\treason\n"
+PATHMAP_HEADER = "timestamp\top\told\tnew\ttag\n"
+DELETED_HEADER = "timestamp\tpath\tsha256\tbytes\tfiles\ttrash\treason\ttag\n"
 
 DEFAULTS = {
     "layout": {
@@ -374,6 +374,33 @@ def read_ledger(path: Path) -> list[dict]:
         return []
     cols = lines[0].split("\t")
     return [dict(zip(cols, l.split("\t"))) for l in lines[1:] if l.strip()]
+
+
+def fix_symlinks(new_root: Path, old_root: Path) -> int:
+    """After moving old_root -> new_root, re-point relative symlinks inside that targeted things outside the moved tree."""
+    n = 0
+    for dp, dn, fn in os.walk(new_root):
+        for name in dn + fn:
+            L = Path(dp) / name
+            if not L.is_symlink():
+                continue
+            target = os.readlink(L)
+            if os.path.isabs(target):
+                continue
+            old_dir = old_root / Path(dp).relative_to(new_root)
+            old_abs = Path(os.path.normpath(old_dir / target))
+            try:
+                old_abs.relative_to(old_root)
+                continue                       # pointed inside the moved tree: still valid
+            except ValueError:
+                pass
+            if os.path.lexists(old_abs):
+                nt = os.path.relpath(old_abs, L.parent)
+                if nt != target:
+                    L.unlink()
+                    os.symlink(nt, L)
+                    n += 1
+    return n
 
 
 def make_symlink(old: Path, new: Path):
@@ -897,7 +924,7 @@ def cmd_adopt(a):
             die(f"{old} still exists; nothing to reconcile")
         changed = apply_move_to_registry(blocks, old, new)
         make_symlink(op, np_)
-        ledger_append(PATHMAP, PATHMAP_HEADER, [now(), "moved", old, new])
+        ledger_append(PATHMAP, PATHMAP_HEADER, [now(), "moved", old, new, a.tag or ""])
         print(f"  recorded move {old} -> {new}; symlink left at {old}; blocks updated: {' '.join(changed) or 'none'}")
         save_registry(preamble, blocks)
         render_index(blocks, cfg)
@@ -972,39 +999,40 @@ def cmd_new(a):
     git_commit([DM, f"analyses/{name}"], f"new: [{b.id}] analyses/{name}", a.trailer, not a.no_commit)
 
 
-def cmd_mv(a):
-    cfg = load_config()
-    old, new = norm_rel(a.old), norm_rel(a.new)
+def op_mv(old: str, new: str, cfg, tag: str = "", trailer=None, commit=True, msg_prefix: str = ""):
     op, np_ = ROOT / old, ROOT / new
-    if not op.exists():
+    if not op.exists() and not op.is_symlink():
         die(f"{old} does not exist")
-    if np_.exists():
+    if np_.exists() or np_.is_symlink():
         die(f"{new} already exists")
     guard(old, cfg)
     guard(new, cfg)
     np_.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(op), str(np_))
+    fixed = fix_symlinks(np_, op) if np_.is_dir() and not np_.is_symlink() else 0
     make_symlink(op, np_)
     preamble, blocks = load_registry()
     changed = apply_move_to_registry(blocks, old, new)
-    ledger_append(PATHMAP, PATHMAP_HEADER, [now(), "mv", old, new])
+    ledger_append(PATHMAP, PATHMAP_HEADER, [now(), "mv", old, new, tag])
     save_registry(preamble, blocks)
     render_index(blocks, cfg)
-    print(f"  moved {old} -> {new}; symlink left at {old}; blocks updated: {' '.join(changed) or 'none'}")
-    git_commit([DM, old, new], f"mv: {old} -> {new}", a.trailer, not a.no_commit)
+    print(f"  moved {old} -> {new}; symlink left at {old}; blocks updated: {' '.join(changed) or 'none'}" + (f"; {fixed} inner symlinks re-pointed" if fixed else ""))
+    git_commit([DM, old, new], f"{msg_prefix}mv: {old} -> {new}", trailer, commit)
 
 
-def cmd_trash(a):
-    cfg = load_config()
-    path = norm_rel(a.path)
+def cmd_mv(a):
+    op_mv(norm_rel(a.old), norm_rel(a.new), load_config(), a.tag or "", a.trailer, not a.no_commit)
+
+
+def op_trash(path: str, message: str, cfg, force=False, tag: str = "", trailer=None, commit=True, msg_prefix: str = ""):
     p = ROOT / path
     if not p.exists() and not p.is_symlink():
         die(f"{path} does not exist")
     guard(path, cfg)
     preamble, blocks = load_registry()
     inside = [b for b in blocks if b.path == path or b.path.startswith(path + "/")]
-    if inside and not a.force:
-        die(f"{path} is registered ([{inside[0].id}]); use --force to trash it and drop the block(s)")
+    if inside and not force:
+        die(f"{path} is registered ([{inside[0].id}]); use --force to trash it and mark the block(s) trashed")
     sha, size, n = ("symlink", 0, 0) if p.is_symlink() else tree_digest(p)
     tdir = ROOT / "archive" / f"trash_{date.today().isoformat()}"
     tdir.mkdir(parents=True, exist_ok=True)
@@ -1013,48 +1041,77 @@ def cmd_trash(a):
         dest = tdir / f"{p.name}_{i}"
         i += 1
     shutil.move(str(p), str(dest))
-    ledger_append(DELETED, DELETED_HEADER, [now(), path, sha, str(size), str(n), rel(dest), a.message])
+    ledger_append(DELETED, DELETED_HEADER, [now(), path, sha, str(size), str(n), rel(dest), message, tag])
     for b in inside:
         b.set("STATUS", "trashed")
-        b.set("NOTE", f"trashed {date.today().isoformat()}: {a.message}; see DELETED.tsv")
+        b.set("NOTE", f"trashed {date.today().isoformat()}: {message}; see DELETED.tsv")
     save_registry(preamble, blocks)
     render_index(blocks, cfg)
     print(f"  trashed {path} -> {rel(dest)}  ({n} files, {size / 2**20:.1f} MiB)")
-    git_commit([DM, path, rel(dest)], f"trash: {path} ({a.message})", a.trailer, not a.no_commit)
+    git_commit([DM, path, rel(dest)], f"{msg_prefix}trash: {path} ({message})", trailer, commit)
+
+
+def cmd_trash(a):
+    op_trash(norm_rel(a.path), a.message, load_config(), a.force, a.tag or "", a.trailer, not a.no_commit)
+
+
+def active_moves(tag: str | None = None):
+    active = []
+    for r in read_ledger(PATHMAP):
+        if r["op"] in ("mv", "moved"):
+            active.append((r["old"], r["new"], r.get("tag", "")))
+        elif r["op"] == "undo":
+            for j in range(len(active) - 1, -1, -1):
+                if active[j][:2] == (r["new"], r["old"]):
+                    active.pop(j)
+                    break
+    return [m for m in active if tag is None or m[2] == tag]
 
 
 def cmd_undo(a):
     cfg = load_config()
-    rows = read_ledger(PATHMAP)
-    active = []
-    for r in rows:
-        if r["op"] in ("mv", "moved"):
-            active.append((r["old"], r["new"]))
-        elif r["op"] == "undo":
-            for j in range(len(active) - 1, -1, -1):
-                if active[j] == (r["new"], r["old"]):
-                    active.pop(j)
-                    break
-    if not active:
-        die("nothing to undo")
+    moves = active_moves(a.tag)
+    todo = moves[::-1] if a.tag else moves[-a.n:][::-1]
+    restored_trash = {r["old"] for r in read_ledger(PATHMAP) if r["op"] == "restore"}
+    trash_rows = [r for r in read_ledger(DELETED) if a.tag and r.get("tag", "") == a.tag and r["trash"] not in restored_trash]
+    if not todo and not trash_rows:
+        die("nothing to undo" + (f" for tag {a.tag}" if a.tag else ""))
     preamble, blocks = load_registry()
     touched = [DM]
-    for old, new in active[-a.n:][::-1]:
+    for old, new, tag in todo:
         op, np_ = ROOT / old, ROOT / new
-        if not np_.exists():
+        if not np_.exists() and not np_.is_symlink():
             die(f"{new} is missing; cannot undo")
         if op.is_symlink():
             op.unlink()
         elif op.exists():
             die(f"{old} exists and is not a symlink; refusing")
         shutil.move(str(np_), str(op))
+        if op.is_dir() and not op.is_symlink():
+            fix_symlinks(op, np_)
         apply_move_to_registry(blocks, new, old)
-        ledger_append(PATHMAP, PATHMAP_HEADER, [now(), "undo", new, old])
+        ledger_append(PATHMAP, PATHMAP_HEADER, [now(), "undo", new, old, tag])
         touched += [old, new]
         print(f"  undone: {new} -> {old}")
+    for r in trash_rows[::-1]:
+        src, dst = ROOT / r["trash"], ROOT / r["path"]
+        if not src.exists() and not src.is_symlink():
+            print(f"  {YEL}cannot restore{RST} {r['path']}: {r['trash']} is gone")
+            continue
+        if dst.exists() or dst.is_symlink():
+            print(f"  {YEL}cannot restore{RST} {r['path']}: something is there now")
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dst))
+        ledger_append(PATHMAP, PATHMAP_HEADER, [now(), "restore", r["trash"], r["path"], a.tag])
+        for b in blocks:
+            if b.status() == "trashed" and (b.path == r["path"] or b.path.startswith(r["path"] + "/")):
+                b.set("STATUS", "active")
+        touched += [r["path"], r["trash"]]
+        print(f"  restored: {r['trash']} -> {r['path']}")
     save_registry(preamble, blocks)
     render_index(blocks, cfg)
-    git_commit(touched, f"undo: {a.n} move(s)", a.trailer, not a.no_commit)
+    git_commit(touched, f"undo: {'tag ' + a.tag if a.tag else str(len(todo)) + ' move(s)'}", a.trailer, not a.no_commit)
 
 
 def cmd_freeze(a):
@@ -1104,8 +1161,9 @@ def cmd_verify(a):
     bdir = DM / f"baseline_{a.baseline}" if a.baseline else (bdirs[-1] if bdirs else None)
     if not bdir or not (bdir / "manifest.tsv").exists():
         die("no baseline found; run freeze first")
-    rows = [r for r in read_ledger(PATHMAP) if r["op"] in ("mv", "moved", "undo")]
-    deleted = [d["path"] for d in read_ledger(DELETED)]
+    rows = [r for r in read_ledger(PATHMAP) if r["op"] in ("mv", "moved", "undo", "restore")]
+    restored_trash = {r["old"] for r in rows if r["op"] == "restore"}
+    deleted = [d["path"] for d in read_ledger(DELETED) if d["trash"] not in restored_trash]
 
     def map_path(p: str) -> str:
         for r in rows:
@@ -1120,7 +1178,7 @@ def cmd_verify(a):
         next(f)
         for line in f:
             path, size, mtime, sha = line.rstrip("\n").split("\t")
-            if sha.startswith("symlink:"):
+            if sha.startswith("symlink:") or path.startswith("DocsManagement/"):
                 continue
             cur = map_path(path)
             p = ROOT / cur
@@ -1141,7 +1199,7 @@ def cmd_verify(a):
                 problems.append(("changed", path, cur))
             else:
                 ok += 1
-    print(f"baseline {bdir.name}: ok {ok}  changed {chg}  missing {miss}  recorded-deleted {dele}  ({'sha256' if a.full else 'size' + ('+mtime' if a.mtime else '')})")
+    print(f"baseline {bdir.name}: ok {ok}  changed {chg}  missing {miss}  recorded-deleted {dele}  ({'sha256' if a.full else 'size' + ('+mtime' if a.mtime else '')}; DocsManagement/ state files not compared)")
     for kind, old, cur in problems[: a.limit]:
         print(f"  {kind:<8} {old}" + (f"  (now {cur})" if cur != old else ""))
     if len(problems) > a.limit:
@@ -1281,6 +1339,234 @@ def cmd_plan(a):
         print(f"  [{b.id}] {b.path}/  {ok}/{total}")
 
 
+
+# ----------------------------------------------------------------- rebuild (existing projects)
+PLAN_COLS = ["action", "src", "dst", "role", "desc", "reason", "status"]
+SKIP_TOP = {"DocsManagement", ".git", ".gitignore", ".claude", ".goal-task", ".codex", ".agents", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "README.md"}
+
+
+def _guess(e, cfg) -> tuple[str, str, str, str]:
+    """(action, dst, role, reason) for a top-level entry — suggestions only."""
+    n, low = e.name, e.name.lower()
+    layers = cfg["layout"]["layers"]
+    if n in layers or n in ("docs", "skills"):
+        return "keep", "", "", "already in layout"
+    if e.is_file(follow_symlinks=False):
+        if n.startswith("stdout:") or n.endswith((".pyc", ".tmp")):
+            return "trash", "", "", "junk"
+        if n.endswith((".tar.xz", ".tar.gz", ".tgz", ".zip", ".7z")):
+            return "mv", f"archive/tarballs/{n}", "", "snapshot archive"
+        if n.endswith((".py", ".sh", ".R")):
+            return "mv", f"skills/pipeline/{n}", "", "loose script"
+        if n.endswith((".md", ".txt")):
+            return "mv", f"docs/{n}", "", "loose document"
+        return "ask", "", "", "loose file"
+    if e.is_symlink():
+        return "keep", "", "", "symlink"
+    if n == "__pycache__" or n.endswith("_tmp"):
+        return "trash", "", "", "cache/temp"
+    try:
+        if not any(os.scandir(e.path)):
+            return "trash", "", "", "empty directory"
+    except OSError:
+        pass
+    if has_forbidden(n, cfg["naming"]["forbidden_chars"]):
+        return "ask", "", "", "name has forbidden characters; choose a new name"
+    sub = {x.name for x in os.scandir(e.path)}
+    if DATE_RE.search(n) or {"code", "stats"} <= sub or "REPORT.md" in sub:
+        return "mv", f"analyses/{n}", "analysis", "analysis-shaped (code/stats/REPORT or dated)"
+    if any(k in low for k in ("mask", "atlas", "raw", "input", "subject", "glm", "tent", "bids")):
+        return "mv", f"inputs/{n}", "input", "input-like name"
+    if any(k in low for k in ("abstract", "paper", "review", "writing", "brief", "manuscript")):
+        return "mv", f"writing/{n}", "writing", "writing-like name"
+    if any(k in low for k in ("old", "test", "archive", "backup", "legacy", "deprecated")):
+        return "mv", f"archive/{n}", "archive", "archive-like name"
+    if any(k in low for k in ("result", "gradient", "deriv", "output", "fc", "matrix")):
+        return "mv", f"derivatives/{n}", "derivative", "derivative-like name"
+    return "ask", "", "", "unclassified"
+
+
+def read_plan(path: Path) -> list[dict]:
+    rows = []
+    for i, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+        if not line.strip() or line.startswith("#") or (i == 0 and line.startswith("action\t")):
+            continue
+        parts = (line.split("\t") + [""] * len(PLAN_COLS))[: len(PLAN_COLS)]
+        rows.append(dict(zip(PLAN_COLS, [x.strip() for x in parts])))
+    return rows
+
+
+def write_plan(path: Path, rows: list[dict]):
+    path.write_text("\t".join(PLAN_COLS) + "\n" + "".join("\t".join(r.get(c, "") for c in PLAN_COLS) + "\n" for r in rows), encoding="utf-8")
+
+
+def check_plan(rows: list[dict], cfg) -> list[str]:
+    errs = []
+    layers = set(cfg["layout"]["layers"]) | {"docs", "skills"}
+    moved_src, dsts = [], set()
+    for i, r in enumerate(rows, 1):
+        act, src, dst = r["action"], r["src"].strip("/"), r["dst"].strip("/")
+        if r.get("status") == "done":
+            moved_src.append(src)
+            continue
+        if act == "ask":
+            errs.append(f"row {i}: still 'ask' ({src}) — decide mv / trash / keep")
+            continue
+        if act not in ("mv", "trash", "adopt", "keep"):
+            errs.append(f"row {i}: unknown action {act!r}")
+            continue
+        if act in ("mv", "trash"):
+            if not src:
+                errs.append(f"row {i}: {act} needs src")
+            elif not (ROOT / src).exists() and not (ROOT / src).is_symlink():
+                errs.append(f"row {i}: src missing: {src}")
+            for m in moved_src:
+                if src == m or src.startswith(m + "/"):
+                    errs.append(f"row {i}: src {src} is inside {m}, which an earlier row already moves — order the inner row first")
+            if src.split("/")[0] in {".git", "DocsManagement"}:
+                errs.append(f"row {i}: protected: {src}")
+        if act == "mv":
+            if not dst:
+                errs.append(f"row {i}: mv needs dst")
+            else:
+                if dst.split("/")[0] not in layers and not dst.startswith("archive/"):
+                    errs.append(f"row {i}: dst must be under a layer, docs/ or skills/: {dst}")
+                if (ROOT / dst).exists() or (ROOT / dst).is_symlink():
+                    errs.append(f"row {i}: dst already exists: {dst}")
+                if dst in dsts:
+                    errs.append(f"row {i}: duplicate dst: {dst}")
+                if any(has_forbidden(part, cfg["naming"]["forbidden_chars"]) for part in dst.split("/")):
+                    errs.append(f"row {i}: dst has forbidden characters: {dst}")
+                dsts.add(dst)
+            moved_src.append(src)
+        if act == "adopt" and not dst:
+            errs.append(f"row {i}: adopt needs dst")
+    return errs
+
+
+def ref_counts(names: list[str], cfg) -> dict[str, int]:
+    """How many text files mention each old top-level name (outside that path) — symlink load after the move."""
+    exts = tuple(cfg["paths"]["scan_ext"]) + (".md", ".txt", ".csv", ".json")
+    counts = {n: 0 for n in names}
+    for dp, dn, fn in os.walk(ROOT):
+        relp = Path(dp).relative_to(ROOT)
+        dn[:] = [d for d in dn if d not in (".git", "__pycache__", "DocsManagement") and not (Path(dp) / d).is_symlink()]
+        if len(relp.parts) >= 4:
+            dn[:] = []
+        for f in fn:
+            if not f.endswith(exts):
+                continue
+            fp = Path(dp) / f
+            try:
+                if fp.stat().st_size > 2_000_000:
+                    continue
+                txt = fp.read_text(errors="ignore")
+            except OSError:
+                continue
+            for n in names:
+                top = n.split("/")[0]
+                if (str(relp) == top or str(relp).startswith(top + "/")):
+                    continue
+                if n in txt:
+                    counts[n] += 1
+    return counts
+
+
+def cmd_rebuild(a):
+    cfg = load_config()
+    if a.survey:
+        rows = []
+        for e in sorted(os.scandir(ROOT), key=lambda e: e.name):
+            if e.name in SKIP_TOP:
+                continue
+            act, dst, role, reason = _guess(e, cfg)
+            rows.append({"action": act, "src": e.name, "dst": dst, "role": role, "desc": "", "reason": reason, "status": ""})
+        out = DM / (a.survey if a.survey != "-" else f"rebuild_{date.today().isoformat()}.tsv")
+        if out.exists() and not a.force:
+            die(f"{rel(out)} exists; edit it, or --force to overwrite")
+        write_plan(out, rows)
+        n = {k: sum(1 for r in rows if r["action"] == k) for k in ("mv", "trash", "adopt", "keep", "ask")}
+        print(f"  wrote {rel(out)}: {len(rows)} rows — " + ", ".join(f"{k} {v}" for k, v in n.items() if v))
+        print("  edit it (tab-separated: action src dst role desc reason), resolve every 'ask', then: rebuild --check <file>")
+        return
+    plan = Path(a.plan) if a.plan else None
+    if not plan or not plan.exists():
+        die("give a plan file: rebuild --survey  →  rebuild --check PLAN  →  rebuild --apply PLAN")
+    rows = read_plan(plan)
+    errs = check_plan(rows, cfg)
+    for e in errs:
+        print(f"{RED}✗{RST} {e}")
+    pending = [r for r in rows if r.get("status") != "done"]
+    n = {k: sum(1 for r in pending if r["action"] == k) for k in ("mv", "trash", "adopt", "keep", "ask")}
+    print(f"plan {plan.name}: {len(rows)} rows, {len(pending)} pending — " + ", ".join(f"{k} {v}" for k, v in n.items() if v))
+    if a.check or errs:
+        mv_src = [r["src"].strip("/") for r in pending if r["action"] == "mv"]
+        if mv_src:
+            print("  references to paths being moved (text files outside them; symlinks will carry these):")
+            for k, v in ref_counts(mv_src, cfg).items():
+                print(f"    {v:5d}  {k}")
+        if errs:
+            die(f"{len(errs)} problem(s); fix the plan")
+        print(f"{GRN}plan is valid{RST}; apply with: rebuild --apply {plan.name}")
+        return
+    # ---- apply ----
+    name = a.name or plan.stem
+    if not sorted(DM.glob("baseline_*")):
+        if a.freeze:
+            a2 = argparse.Namespace(name=None, force=False, trailer=a.trailer, no_commit=a.no_commit)
+            cmd_freeze(a2)
+        else:
+            die("no baseline; run `freeze` first (or rebuild --apply --freeze)")
+    mig = DM / "migrations"
+    mig.mkdir(exist_ok=True)
+    record = mig / f"{name}.tsv"
+    for d in cfg["layout"]["layers"] + ["docs", "skills"]:
+        (ROOT / d).mkdir(exist_ok=True)
+    done = 0
+    for i, r in enumerate(rows, 1):
+        if r.get("status") == "done" or r["action"] == "keep":
+            continue
+        act, src, dst = r["action"], r["src"].strip("/"), r["dst"].strip("/")
+        pre = f"[rebuild:{name}] "
+        try:
+            if act == "mv":
+                op_mv(src, dst, cfg, tag=name, trailer=a.trailer, commit=not a.no_commit, msg_prefix=pre)
+                if r["role"] or dst.count("/") == 1 and dst.split("/")[0] in cfg["layout"]["layers"]:
+                    preamble, blocks = load_registry()
+                    if dst not in {b.path for b in blocks}:
+                        b, _ = register(blocks, dst, cfg, role=r["role"] or None, desc=r["desc"] or None)
+                        save_registry(preamble, blocks)
+                        render_index(blocks, cfg)
+                        git_commit([DM, dst], f"{pre}adopt: [{b.id}] {dst}", a.trailer, not a.no_commit)
+            elif act == "trash":
+                op_trash(src, r["reason"] or r["desc"] or "rebuild", cfg, force=True, tag=name, trailer=a.trailer, commit=not a.no_commit, msg_prefix=pre)
+            elif act == "adopt":
+                preamble, blocks = load_registry()
+                if dst not in {b.path for b in blocks}:
+                    b, _ = register(blocks, dst, cfg, role=r["role"] or None, desc=r["desc"] or None)
+                    save_registry(preamble, blocks)
+                    render_index(blocks, cfg)
+                    git_commit([DM, dst], f"{pre}adopt: [{b.id}] {dst}", a.trailer, not a.no_commit)
+        except SystemExit:
+            r["status"] = "failed"
+            write_plan(record, rows)
+            write_plan(plan, rows)
+            print(f"{RED}stopped at row {i}{RST} ({act} {src}); fix and re-run --apply to resume")
+            raise
+        r["status"] = "done"
+        done += 1
+        write_plan(record, rows)
+        write_plan(plan, rows)
+    print(f"  {done} rows applied; record: {rel(record)}")
+    git_commit([DM], f"rebuild {name}: {done} rows applied", a.trailer, not a.no_commit)
+    print("  verifying against the latest baseline …")
+    a3 = argparse.Namespace(baseline=None, full=False, mtime=False, limit=20, report=None)
+    try:
+        cmd_verify(a3)
+    except SystemExit as e:
+        if e.code:
+            print(f"{YEL}verify reported problems; inspect before going further (undo --tag {name} reverts everything){RST}")
+
 CODE_FILES = ["DocsManagement.py", "SKILL.md", "SPEC.md", "VERSION", "templates"]
 
 
@@ -1325,6 +1611,7 @@ def main(argv=None):
     p = sp.add_parser("adopt", help="register a directory, update a block, or record a manual move")
     p.add_argument("target", nargs="?", help="directory path, or an existing ID to update")
     p.add_argument("--moved", nargs=2, metavar=("OLD", "NEW"), help="record a move done by hand")
+    p.add_argument("--tag", help="with --moved: group under a name")
     p.add_argument("--role", choices=sorted(set(ROLE_OF.values())))
     p.add_argument("--layer", choices=DEFAULTS["layout"]["layers"], help="layer for a directory not under a layer dir (transition)")
     p.add_argument("--desc", help="QUESTION / DESC one-liner")
@@ -1341,17 +1628,30 @@ def main(argv=None):
     p = sp.add_parser("mv", help="move a path, leave a symlink behind, record it in PATHMAP")
     p.add_argument("old")
     p.add_argument("new")
+    p.add_argument("--tag", help="group this move under a name (undo --tag reverts the group)")
     p.set_defaults(fn=cmd_mv)
 
     p = sp.add_parser("trash", help="move a path into archive/trash_<date>/ and record it in DELETED")
     p.add_argument("path")
     p.add_argument("-m", "--message", required=True, help="reason")
     p.add_argument("--force", action="store_true", help="allow trashing a registered directory")
+    p.add_argument("--tag", help="group this under a name (undo --tag restores the group)")
     p.set_defaults(fn=cmd_trash)
 
-    p = sp.add_parser("undo", help="replay the last N moves backwards")
+    p = sp.add_parser("undo", help="replay the last N moves backwards, or a whole tagged group (moves + trash restores)")
     p.add_argument("n", nargs="?", type=int, default=1)
+    p.add_argument("--tag", help="undo every move/trash recorded under this tag (e.g. a rebuild name)")
     p.set_defaults(fn=cmd_undo)
+
+    p = sp.add_parser("rebuild", help="restructure an existing project from a reviewed plan: --survey → --check → --apply")
+    p.add_argument("plan", nargs="?", help="plan file (tab-separated) from --survey, edited by you")
+    p.add_argument("--survey", nargs="?", const="-", metavar="FILE", help="scan the top level and write a draft plan")
+    p.add_argument("--check", action="store_true", help="validate the plan and report reference counts; change nothing")
+    p.add_argument("--apply", action="store_true", help="execute pending rows (needs a baseline); resumable")
+    p.add_argument("--name", help="migration tag (default: plan file stem)")
+    p.add_argument("--freeze", action="store_true", help="with --apply: take a baseline first if none exists")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_rebuild)
 
     p = sp.add_parser("freeze", help="write a full manifest (path, size, mtime, sha256) of the tree")
     p.add_argument("--name", help="baseline name (default: today)")

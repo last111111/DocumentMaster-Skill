@@ -33,8 +33,10 @@ DocsManagement/
   config.toml           本项目的规则：层、顶层白名单、模板、命名、大小上限、旧路径、外部检查（人改）
   PROVENANCE.txt        登记表（人改 + 引擎改，见 §2）
   README.md             索引，引擎从登记表生成，不手改；项目根的 README.md 是指向它的符号链接
-  PATHMAP.tsv           移动账本，append-only：时间 · 操作(mv/moved/undo) · 旧 · 新
-  DELETED.tsv           删除账本，append-only：时间 · 路径 · sha256 · 字节 · 文件数 · trash 位置 · 原因
+  PATHMAP.tsv           移动账本，append-only：时间 · 操作(mv/moved/undo/restore) · 旧 · 新 · 标签
+  DELETED.tsv           删除账本，append-only：时间 · 路径 · sha256 · 字节 · 文件数 · trash 位置 · 原因 · 标签
+  migrations/<名>.tsv   每次 rebuild 的计划与逐行结果
+  rebuild_<日期>.tsv    survey 生成、人改的重建计划
   baseline_<名>/        冻结的全树 manifest（path · bytes · mtime_ns · sha256）、tree.txt、du.tsv
   .keycache.json        KEY 指纹缓存（size + mtime 没变就不重算；不进 git）
 ```
@@ -134,7 +136,18 @@ agent 进项目的阅读深度因此是三层：`CLAUDE.md`（项目是什么）
 - **看进度**：`plan` 无参数 = 路线图（规划中的块 + 产出未齐的块）；`plan <ID>` = 逐模式 ✓/✗ 和缺的被试；`plan <ID> --expect '<模式>'` 追加模式。索引里 outputs 列是 `已有/应有`。
 - **规则**：换代（新的 `derivatives/genN_*`）和大分析**先 `plan --new` 再动手**；跑完 `plan <ID>` 全 ✓ 才改 `final`。README 的「输出规划」段和 `EXPECT` 保持一致。
 
-### 2.5 变更史在 git 里
+### 2.5 重建：把现成的乱项目搬进这套布局，且可整体回退
+
+针对不是从零开始的项目（GradientMaps 就是）。四步，每步都能停：
+
+1. `DocsManagement rebuild --survey` → 写 `rebuild_<日期>.tsv`：顶层每个条目一行（`action src dst role desc reason`），启发式给建议（日期后缀或含 code/stats → analyses；mask/atlas/raw → inputs；abstract/paper/review → writing；old/test → archive；压缩包 → archive/tarballs；散脚本 → skills/pipeline；空目录、`stdout:*`、`__pycache__` → trash；看不出的 → `ask`）。**它只是草稿，人来改**：拆一个大杂烩目录就加子路径的行（先搬子目录，再搬父目录），给 `role`/`desc`，把每个 `ask` 改掉。
+2. `rebuild --check <计划>`：来源存在、去向不冲突且在层内、嵌套顺序、保护路径、禁用字符；并统计**项目里有多少文本文件引用了每个将被搬走的路径**——这就是符号链接要承担的负荷，心里有数。不改任何东西。
+3. `rebuild --apply <计划> [--freeze]`：没有基线就先 `freeze`；逐行执行 `mv` / `trash` / `adopt`，所有账本行打上迁移名标签，每行一个 commit（`[rebuild:<名>] …`），结果写回计划文件和 `migrations/<名>.tsv`；中途失败就停在那一行，修好再跑 `--apply` 从未完成的行续跑；全部做完自动 `verify`。
+4. 反悔：`undo --tag <迁移名>` 把该次迁移的所有移动倒序回放、trash 里的东西放回原处。
+
+技术细节：`mv` 搬一棵子树时，树里指向外部的相对符号链接会按新位置重算，所以「先把 `hub/x` 搬出去、再搬 `hub`」之后 `hub/x` 这条旧路径仍然能走通（根的 `hub` 链接 → 新 `hub` 里的 `x` 链接 → 新 `x`）。`verify` 不比较 `DocsManagement/` 自己的状态文件（它们本来就该变）。
+
+### 2.6 变更史在 git 里
 
 没有单独的 CHANGELOG 段：每个 `DocsManagement` 操作就是一个 commit（`adopt: [A06] …`、`mv: … -> …`、`trash: …`）。人手改了登记表或 README，用 `DocsManagement commit [-m …]` 入账（先跑一遍检查，有红不让提交）。查一个目录的来龙去脉用 `DocsManagement log <ID 或路径>`：列出改过它的 commit、搬过它的 PATHMAP 行、删过它的 DELETED 行。
 
@@ -197,9 +210,10 @@ agent 进项目的阅读深度因此是三层：`CLAUDE.md`（项目是什么）
 | `adopt --moved <旧> <新>` | 人手移动后补账 | ✓ |
 | `new <问题> [--desc]` | 建模板分析目录 + 块；同路径有规划块则激活它 | ✓ |
 | `plan` / `plan <ID> [--expect 模式 …]` / `plan --new <路径> [--desc] [--inputs ID …] [--expect 模式 …]` | 路线图 / 单目录 ✓✗ / 登记规划块 | 改动时 ✓ |
-| `mv <旧> <新>` | 移动 + 留链接 + PATHMAP | ✓ |
-| `trash <路径> -m <原因> [--force]` | 进 trash + DELETED | ✓ |
-| `undo [N]` | 回放最近 N 次移动 | ✓ |
+| `mv <旧> <新> [--tag 名]` | 移动 + 留链接 + PATHMAP（搬子树时修正内部相对链接） | ✓ |
+| `trash <路径> -m <原因> [--force] [--tag 名]` | 进 trash + DELETED | ✓ |
+| `undo [N]` / `undo --tag <名>` | 回放最近 N 次移动 / 整体回退一次迁移（移动 + trash 还原） | ✓ |
+| `rebuild --survey` / `rebuild --check <计划>` / `rebuild --apply <计划> [--freeze] [--name]` | 重建现成项目：起草 / 校验 / 执行（§2.5） | apply 时 ✓ |
 | `freeze [--name] [--force]` | 全树 manifest | ✓ |
 | `verify [--full] [--mtime] [--baseline 名] [--report 文件]` | 基线 × PATHMAP × DELETED 核对磁盘 | — |
 | `commit [-m 信息]` | 人手改动入账：同 hook 的检查 → 暂存放行区 → 一个 commit | ✓ |

@@ -23,6 +23,7 @@ type: project
 - 建分析：`DocsManagement new <问题>`（不要手 mkdir）。登记人手建的目录：`DocsManagement adopt <路径>`。
 - 跑完：`DocsManagement adopt <ID> --key <主结果文件>` 打指纹；`DocsManagement plan <ID>` 看产出 ✓/✗。
 - 收工：填掉块和 README 里的 TODO → `DocsManagement commit` → `DocsManagement status` 无红再结束。
+- 现成的乱项目要搬进这套布局：`rebuild --survey` 起草 → 人改计划 → `rebuild --check` → `rebuild --apply --freeze`；反悔 `undo --tag <计划名>`。细节 SPEC.md §2.5。
 
 ## 硬规则
 
@@ -36,7 +37,7 @@ type: project
 
 ## 命令一览
 
-`status [--strict] [--staged] [--json]` · `plan [ID] [--new 路径] [--expect 模式]` · `new` · `adopt` · `mv` · `trash` · `undo` · `commit` · `log [ID]` · `freeze` · `verify` · `init` · `install`
+`status [--strict] [--staged] [--json]` · `plan [ID] [--new 路径] [--expect 模式]` · `new` · `adopt` · `mv` · `trash` · `undo [--tag 名]` · `commit` · `log [ID]` · `freeze` · `verify` · `rebuild --survey|--check|--apply` · `init` · `install`
 
 ## 登记块长这样（细节见 SPEC.md §2）
 
