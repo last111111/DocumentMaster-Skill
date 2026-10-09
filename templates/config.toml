@@ -18,24 +18,27 @@ dirs = ["code", "data", "stats", "figures", "per_subject", "validation", "docs"]
 date_suffix = true          # `new foo` -> analyses/foo_YYYY-MM-DD/
 
 [naming]
-forbidden_chars = [" ", "(", ")", ":"]      # AFNI breaks on parentheses; "stdout:" made junk files once
+forbidden_chars = [" ", "(", ")", ":"]      # many tools mishandle these; colons break on some filesystems
 
 [git]
 max_file_mb = 20
-binary_ext = [".npy", ".npz", ".h5", ".hdf5", ".nii", ".nii.gz", ".BRIK", ".BRIK.gz", ".HEAD", ".mat"]
+binary_ext = [".npy", ".npz", ".h5", ".hdf5", ".nii", ".nii.gz", ".BRIK", ".BRIK.gz", ".HEAD", ".mat",
+              ".parquet", ".pkl", ".pt", ".ckpt", ".zip", ".tar", ".tar.gz", ".tar.xz"]
 
 [paths]
-legacy_patterns = ["/mnt/mydisk"]           # dead paths from the previous machine
+legacy_patterns = []                        # dead path prefixes to flag in code, e.g. ["/mnt/olddisk", "C:\\Users\\old"]
 legacy_level = "red"                        # "yellow" while old scripts are still being fixed
 scan_dirs = ["skills", "analyses/*/code"]  # where to look for them (code only, not prose)
+external_markers = ["外部", "external", "remote"]   # an INPUTS line containing one of these is not checked locally
 scan_ext = [".py", ".sh", ".R", ".txt", ".csv", ".tsv", ".json", ".env"]
 
 [ids]
 prefix = { inputs = "I", derivatives = "D", analyses = "A", writing = "W", archive = "X" }
 
 [checks]
-# External checkers run by `status`; non-zero exit is red. Relative to the project root.
-scripts = ["writing/abstract/check_readme.py", "abstract/check_readme.py"]
+# External checkers run by `status` (cwd = the script's directory); non-zero exit is red. Relative to the project root.
+# e.g. a sub-directory that keeps its own per-file registry: scripts = ["writing/abstract/check_readme.py"]
+scripts = []
 
 [agents]
 # The one instructions file every agent reads; the aliases are symlinks to it.
@@ -50,3 +53,10 @@ column = "subject"
 
 [plan]
 scan_depth = 3            # how deep `strict` EXPECT looks for unexpected files
+
+[rebuild]
+# Name hints used by `rebuild --survey` to suggest a layer for each top-level entry (case-insensitive substrings).
+inputs      = ["raw", "input", "source", "data", "subject", "sample", "reference", "atlas", "mask"]
+derivatives = ["result", "output", "deriv", "processed", "feature", "model"]
+writing     = ["abstract", "paper", "manuscript", "review", "writing", "brief", "report", "slides"]
+archive     = ["old", "test", "archive", "backup", "legacy", "deprecated", "tmp"]

@@ -15,8 +15,8 @@ TODO — 第几代产物、什么方法、和上一代的区别一句话。
 - 代码：TODO（`skills/<skill>/` @ `git:<commit>`）
 - 命令：TODO（完整命令行，含全部参数）
 - 环境：TODO（机器 / python 或 R 环境 / 日期）
-- 被试集：TODO（n、名单、排除及理由）
-- 参数：TODO（例：稀疏化 top-10%、成分数 10、alpha 0.5、seed 42）
+- 样本 / 被试集：TODO（n、名单、排除及理由）
+- 参数：TODO（全部可调参数与随机种子）
 
 ## 输出规划 / Expected outputs
 
@@ -24,7 +24,7 @@ TODO — 第几代产物、什么方法、和上一代的区别一句话。
 
 ## 输出布局 / Layout
 
-- TODO（文件名模式 → 内容、形状、dtype；组级与被试级分开写）
+- TODO（文件名模式 → 内容、形状、dtype；汇总级与样本级分开写）
 
 ## 验证 / Validation
 

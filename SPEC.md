@@ -3,13 +3,13 @@
 （`SKILL.md` 是给 agent 的 50 行核心；本文件是字段、规则、校验、命令的全文。）
 
 版本 v0.1.0 · 2026-10-07 · 适用于所有在本项目里建目录、搬目录、写结果的人和 agent。
-与 `writing/abstract/agent.md` 的关系：那份管 `abstract/` 内部**逐文件**；本份管整个项目**逐目录**。两级嵌套，不冲突——`abstract/` 在本表里是一个块，它的 `readme.txt` 是那个块的指纹。
+与子目录自己的登记的关系：某个目录（典型是写作/汇总层）可以自带**逐文件**的登记和校验脚本；本份管整个项目**逐目录**。两级嵌套，不冲突——那个目录在本表里是一个块，它自己的登记文件是那个块的指纹，它的校验脚本登记进 `config.toml [checks] scripts` 后由 `status` 一起跑。
 
 ## 0. 用途
 
 `DocsManagement/` 是**管理层**：记录项目里每个有意义的目录从哪来、到哪去、现在算不算数。它不放数据、不放分析、不产生数值。
 
-- 粒度是**目录**，不是文件。五个层下每个一级目录是一个登记单元，全项目约 30 个。逐文件登记只在 `writing/abstract/` 里做。
+- 粒度是**目录**，不是文件。五个层下每个一级目录是一个登记单元，通常几十个。逐文件登记留给需要的子目录自己做。
 - 工作方式像 git：**不拦你写，只对账。** 你可以手建目录、手 `mv`、手改登记表；`DocsManagement status` 告诉你磁盘、登记表、git 三方哪里对不上，并给出补账的那一条命令。
 - 每个登记的目录都要能回答四个问题：**它是什么**（`QUESTION`/`DESC`）、**读了谁**（`INPUTS`）、**用哪段代码的哪个版本算的**（`CODE`）、**内容变没变**（`KEY` 指纹）。答不上的写 `TODO`，`status` 会一直黄着提醒。
 
@@ -45,12 +45,12 @@ DocsManagement/
 
 ```
 <ROOT>/
-  inputs/          只读。不是本项目流程算出来的：mask、被试表、atlas、上游 GLM 输出
-  derivatives/     标准流程的产物，按代：gen3_zavg/ gen4_tent/ …，多个分析共用
+  inputs/          只读。不是本项目流程算出来的：原始数据、样本/被试表、参考资料、上游工具的输出
+  derivatives/     标准流程的产物，按代：gen1/ gen2/ …，多个分析共用
   analyses/        一问一目录，自包含：README.md code/ data/ stats/ figures/ per_subject/ validation/ docs/
-  writing/         汇总与写作：abstract/（自带 agent.md）、reviews/、briefs/、literature/
+  writing/         汇总与写作：摘要、审稿、简报、文献
   archive/         被取代的产物 + trash_<日期>/（trash 命令的去处）
-  skills/          科学 skill（dm-workflow、group-3dLME …），与 Jetstream2 卷根的 skill/ 同构
+  skills/          本项目的流程 / 分析 skill 与脚本
   docs/            人写的文档
   DocsManagement/  本层
   AGENTS.md（正本）  CLAUDE.md GEMINI.md -> AGENTS.md  README.md -> DocsManagement/README.md  .gitignore  .git/
@@ -63,7 +63,7 @@ UTF-8 纯文本。开头是说明段（可写 `#` 注释），之后每个目录
 ### 2.1 块头与 ID
 
 ```
-[A06]  analyses/S1_crossnobis_2026-09-02/
+[A06]  analyses/example_2026-09-02/
 ```
 
 - ID = 层前缀 + 两位序号。前缀：`I` inputs · `D` derivatives · `A` analyses · `W` writing · `X` archive。
@@ -73,17 +73,17 @@ UTF-8 纯文本。开头是说明段（可写 `#` 注释），之后每个目录
 ### 2.2 字段
 
 ```
-[A06]  analyses/S1_crossnobis_2026-09-02/
+[A06]  analyses/example_2026-09-02/
        ROLE    : analysis
-       QUESTION: 左 S1 五个身体部位的 crossnobis 形状构型是否有组间差异（TD15 vs ID7）
-       INPUTS  : [D01] derivatives/gen3_zavg/result_with_fisherz/motor-whole-brain-z/<subj>/<subj>_gradient_aligned_0{1,2}.nii.gz
-                 [A03] analyses/TD_defined_bilateralBP_activity_clusters/stats/   （ROI 定义）
-                 [I03] inputs/atlas_S1M1_strip_bins/data/
-       CODE    : analyses/S1_crossnobis_2026-09-02/code/   git:3f9c1a2
-       KEY     : stats/permanova_summary.csv  sha256:<完整 64 位>
+       QUESTION: 两组在某指标上是否有差异（示例）
+       INPUTS  : [D01] derivatives/gen1/<subj>/<subj>_feature_0{1,2}.npy
+                 [A03] analyses/define_rois_2026-08-28/stats/   （ROI 定义）
+                 [I03] inputs/atlas/
+       CODE    : analyses/example_2026-09-02/code/   git:3f9c1a2
+       KEY     : stats/summary.csv  sha256:<完整 64 位>
        STATUS  : final
-       REPORT  : docs/NOTES_crossnobis_S1.md
-       NOTE    : hand mask 由 TD 组定义，operator 对两组不对称；结果按 exploratory 引用
+       REPORT  : docs/NOTES.md
+       NOTE    : ROI 由其中一组定义，算子对两组不对称；结果按 exploratory 引用
        USED_BY : [A09] [W01]
 ```
 
@@ -92,18 +92,18 @@ UTF-8 纯文本。开头是说明段（可写 `#` 注释），之后每个目录
 | `ROLE` | `input` / `derivative` / `analysis` / `writing` / `archive`。`adopt` 按层填，可 `--role` 覆盖 |
 | `QUESTION`（分析）/ `DESC`（其它） | 一句话。分析写它回答的问题；输入写**来源**（谁、什么时候、哪台机器、哪个脚本）；产物写是哪一代、什么方法 |
 | `EXPECT` | **规划的产出**：相对本目录的文件模式，一行一个。`<subj>` 按 `config.toml [subjects]` 的被试表展开，`{01..10}` / `{a,b}` 展开；单独一行 `strict` 表示目录里不该有模式之外的文件。`status` 报缺口（`expected_missing`）和意外文件（`unexpected_file`），索引的 outputs 列显示进度 |
-| `INPUTS` | 读了谁。**只许用 `[ID]` 引用本表里的块**，后面跟具体路径（可用 `<subj>`、`{1,2}` 占位，引擎按 glob 核对存在）。外部来源（Jetstream2、别的项目、旧机器）写完整路径并带 `外部` 或 `jetstream` 字样，引擎不去本地找。`input` 角色不需要此字段 |
+| `INPUTS` | 读了谁。**只许用 `[ID]` 引用本表里的块**，后面跟具体路径（可用 `<subj>`、`{1,2}` 占位，引擎按 glob 核对存在）。外部来源（远端机器、别的项目、旧机器）写完整路径并带 `外部` / `external` / `remote` 字样（`config.toml [paths] external_markers` 可加），引擎不去本地找。`input` 角色不需要此字段 |
 | `CODE` | 用哪段代码算的：路径 + `git:<commit>`。找不到写 `UNKNOWN (原因)`，**不留空**。分析和产物必填 |
-| `KEY` | 1–3 个代表性文件 + 完整 sha256，作为目录指纹：产物用组模板 npy，分析用主结果表，写作层用它自己的 `readme.txt`。用 `adopt <ID> --key <文件>` 算，不手抄。文件重跑过就必须重新指纹，否则红 |
+| `KEY` | 1–3 个代表性文件 + 完整 sha256，作为目录指纹：产物用代表性结果文件，分析用主结果表，写作层用它自己的登记或索引文件。用 `adopt <ID> --key <文件>` 算，不手抄。文件重跑过就必须重新指纹，否则红 |
 | `STATUS` | `planned` 已规划、目录还不存在 · `active` 进行中 · `final` 定稿 · `exploratory` 探索性 · `archived` 归档 · `superseded-by: [ID]` 被取代 · `trashed` 已进 trash。**不删旧块**。`final` 的块不许有任何 TODO / 缺 KEY / EXPECT 缺口（否则红 `final_incomplete`） |
 | `REPORT` | 人看的叙述在哪（相对块路径）：`REPORT.md` / `docs/NOTES_*.md`。分析必填 |
-| `REMOTE` | 可选。重数据在 Jetstream2 的路径（本地只有回传的轻量结果时） |
+| `REMOTE` | 可选。重数据在远端机器上的路径（本地只有回传的轻量结果时） |
 | `NOTE` | 可选。限定、口径、坑。分支 NOTES 里标过 exploratory / 小 ROI 不稳定 / operator 不对称 / 未过可靠性闸门的，**必须**写进来 |
 | `USED_BY` | 引擎回填（谁的 `INPUTS` 引用了它），不手写 |
 
 ### 2.3 每个登记目录的 `README.md`
 
-登记块回答「是什么 / 读了谁 / 哪段代码 / 变没变」各一行；**目录里的 `README.md` 负责让人和 agent 真正看懂它**——相当于 `abstract/` 里每个主题的 `RESULTS_<topic>.md` + `source/`，只是按角色定模板。`adopt` / `new` 发现没有就从模板写一份（带 `[ID]`、日期、TODO 段），不覆盖已有的。`status` 对没有 README 的报 `readme_missing`，对还留 TODO 的报 `readme_todo`。
+登记块回答「是什么 / 读了谁 / 哪段代码 / 变没变」各一行；**目录里的 `README.md` 负责让人和 agent 真正看懂它**——相当于每个主题自带一份结果摘要和来源副本，只是按角色定模板。`adopt` / `new` 发现没有就从模板写一份（带 `[ID]`、日期、TODO 段），不覆盖已有的。`status` 对没有 README 的报 `readme_missing`，对还留 TODO 的报 `readme_todo`。
 
 | 角色 | 模板 | 必答的段 |
 |---|---|---|
@@ -122,13 +122,12 @@ agent 进项目的阅读深度因此是三层：`CLAUDE.md`（项目是什么）
 
 登记表不只是事后追溯，也是事前规划：
 
-- **规划块**：`DocsManagement plan --new derivatives/gen4_tent --desc … --inputs I05 I01 --expect '<模式>' …` 在目录还不存在时就写下块，`STATUS: planned`。`status` 不把它当 missing；目录出现后提示 `planned_ready`，`adopt <ID>` 或 `new <同名>` 把它激活为 `active`。
+- **规划块**：`DocsManagement plan --new derivatives/gen2 --desc … --inputs I01 I02 --expect '<模式>' …` 在目录还不存在时就写下块，`STATUS: planned`。`status` 不把它当 missing；目录出现后提示 `planned_ready`，`adopt <ID>` 或 `new <同名>` 把它激活为 `active`。
 - **EXPECT**：声明将产出什么。例：
 
   ```
-  EXPECT  : wholebrain/<subj>/<subj>_gradient_aligned_{01..10}.nii.gz
-            wholebrain/group_average_gradients.npy
-            cortex/<subj>/<subj>_gradient_aligned_{01..10}.nii.gz
+  EXPECT  : features/<subj>/<subj>_feature_{01..10}.npy
+            features/group_summary.csv
             strict
   ```
 
@@ -138,9 +137,9 @@ agent 进项目的阅读深度因此是三层：`CLAUDE.md`（项目是什么）
 
 ### 2.5 重建：把现成的乱项目搬进这套布局，且可整体回退
 
-针对不是从零开始的项目（GradientMaps 就是）。四步，每步都能停：
+针对不是从零开始的项目。四步，每步都能停：
 
-1. `DocsManagement rebuild --survey` → 写 `rebuild_<日期>.tsv`：顶层每个条目一行（`action src dst role desc reason`），启发式给建议（日期后缀或含 code/stats → analyses；mask/atlas/raw → inputs；abstract/paper/review → writing；old/test → archive；压缩包 → archive/tarballs；散脚本 → skills/pipeline；空目录、`stdout:*`、`__pycache__` → trash；看不出的 → `ask`）。**它只是草稿，人来改**：拆一个大杂烩目录就加子路径的行（先搬子目录，再搬父目录），给 `role`/`desc`，把每个 `ask` 改掉。
+1. `DocsManagement rebuild --survey` → 写 `rebuild_<日期>.tsv`：顶层每个条目一行（`action src dst role desc reason`），启发式给建议（日期后缀或含 code/stats/REPORT → analyses；其余按 `config.toml [rebuild]` 的名字提示分层，默认 raw/input/data/sample… → inputs、result/output/model… → derivatives、paper/review/manuscript… → writing、old/backup/legacy… → archive；压缩包 → archive/tarballs；散脚本 → skills/pipeline；空目录、`__pycache__`、`stdout:*` → trash；看不出的 → `ask`）。**它只是草稿，人来改**：拆一个大杂烩目录就加子路径的行（先搬子目录，再搬父目录），给 `role`/`desc`，把每个 `ask` 改掉。
 2. `rebuild --check <计划>`：来源存在、去向不冲突且在层内、嵌套顺序、保护路径、禁用字符；并统计**项目里有多少文本文件引用了每个将被搬走的路径**——这就是符号链接要承担的负荷，心里有数。不改任何东西。
 3. `rebuild --apply <计划> [--freeze]`：没有基线就先 `freeze`；逐行执行 `mv` / `trash` / `adopt`，所有账本行打上迁移名标签，每行一个 commit（`[rebuild:<名>] …`），结果写回计划文件和 `migrations/<名>.tsv`；中途失败就停在那一行，修好再跑 `--apply` 从未完成的行续跑；全部做完自动 `verify`。
 4. 反悔：`undo --tag <迁移名>` 把该次迁移的所有移动倒序回放、trash 里的东西放回原处。
@@ -161,8 +160,8 @@ agent 进项目的阅读深度因此是三层：`CLAUDE.md`（项目是什么）
 5. **大搬迁前后**：先 `freeze` 冻结全树 manifest；搬完 `verify`（默认比字节数，`--full` 比 sha256）；`缺失 = 变化 = 0` 才算搬完。基线永久留在 `baseline_<名>/`，进 git。
 6. **只读区**：`inputs/`、`derivatives/` 对分析只读；要改先拷进自己的 `data/`。
 7. **读谁**：分析只读 `inputs/`、`derivatives/`、和**日期早于自己**的 `analyses/*/stats/`；不读别人的 `data/`。引擎只查日期先后（黄），`stats/` 这条靠 review。
-8. **限定随块走**：exploratory、小 ROI 不稳定、operator 不对称、未过闸门——写进 `STATUS` 或 `NOTE`；汇总进 `writing/` 时跟着走（`abstract/agent.md` 第 4 条是同一规则的文件级版本）。
-9. **命名**：禁止空格、括号、冒号（AFNI 会出错）。新建分析带 `_YYYY-MM-DD` 后缀；**已有目录不改名**。
+8. **限定随块走**：exploratory、样本小不稳定、方法不对称、未过质量闸门——写进 `STATUS` 或 `NOTE`；汇总进 `writing/` 时跟着走。
+9. **命名**：禁止空格、括号、冒号（很多工具对它们处理不稳）。新建分析带 `_YYYY-MM-DD` 后缀；**已有目录不改名**。
 10. **顶层**：只许 `config.toml` 列的条目；过渡期的符号链接除外。新东西不落顶层。
 11. **不手改 `README.md`**（生成物）。
 12. **收工前** `DocsManagement status`：无红才结束；黄色当天能填的填掉。
@@ -179,9 +178,9 @@ agent 进项目的阅读深度因此是三层：`CLAUDE.md`（项目是什么）
 | 红 | `id_dangling` | `INPUTS` / `superseded-by` 引用了未定义的 ID |
 | 红 | `status_invalid` | `STATUS` 不在允许值里 |
 | 红 | `key_changed` | KEY 文件丢失，或 sha256 与登记不符 |
-| 红 | `legacy_path` | `scan_dirs` 下的代码出现 `/mnt/mydisk` 等旧路径（config 可降为黄） |
+| 红 | `legacy_path` | `scan_dirs` 下的代码出现 `[paths] legacy_patterns` 列的旧路径（config 可降为黄） |
 | 红 | `staged_binary` / `staged_big` | `--staged`：暂存区有 `*.npy *.h5 *.nii*` 等二进制，或单文件超过 20 MB |
-| 红 | `external_check` | `writing/abstract/check_readme.py` 退出非零 |
+| 红 | `external_check` | `[checks] scripts` 登记的外部校验脚本退出非零 |
 | 红 | `final_incomplete` | `STATUS: final` 但仍有 TODO 字段、缺 KEY、README 有 TODO 或 EXPECT 缺口 |
 | 黄 | `unregistered` | 层下一级目录没有块 → `adopt` |
 | 黄 | `moved?` | 有块缺目录、有目录缺块，且同名或 KEY 指纹一致 → `adopt --moved` |
@@ -226,8 +225,8 @@ agent 进项目的阅读深度因此是三层：`CLAUDE.md`（项目是什么）
 ## 6. 装到别的项目 / 升级
 
 ```
-DocsManagement install /media/z/Disk1/Imitation     # 只拷代码五样
-cd /media/z/Disk1/Imitation && DocsManagement init --layout   # 生成它自己的 config / 登记表 / 账本 / hook / 链接 / CLAUDE.md，建空层目录
+DocsManagement install /path/to/other-project       # 只拷代码五样
+cd /path/to/other-project && DocsManagement init --layout   # 生成它自己的 config / 登记表 / 账本 / hook / 链接 / CLAUDE.md，建空层目录
 ```
 
 升级 = `install <项目> --force` 覆盖代码五样；状态文件不受影响。各项目的 `config.toml` 独立。

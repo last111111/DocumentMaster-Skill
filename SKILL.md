@@ -42,13 +42,13 @@ type: project
 ## 登记块长这样（细节见 SPEC.md §2）
 
 ```
-[D03]  derivatives/gen4_tent/
+[D02]  derivatives/gen2/
        ROLE    : derivative
-       DESC    : gen4：TENT 残差 → FC → 梯度；云端算，本地只回传轻量结果
-       INPUTS  : [I05] inputs/Mototopy_TENT/   [I01] inputs/masks/
-       EXPECT  : wholebrain/<subj>/<subj>_gradient_aligned_{01..10}.nii.gz
-                 wholebrain/group_average_gradients.npy
-       CODE    : skills/dm-workflow/   git:<commit>
-       KEY     : wholebrain/group_average_gradients.npy  sha256:…
+       DESC    : 第二代产物：新的预处理 → 特征；远端算，本地只回传汇总结果
+       INPUTS  : [I01] inputs/raw/   [I02] inputs/reference/
+       EXPECT  : features/<subj>/<subj>_feature_{01..10}.npy
+                 features/group_summary.csv
+       CODE    : skills/pipeline/   git:<commit>
+       KEY     : features/group_summary.csv  sha256:…
        STATUS  : planned
 ```

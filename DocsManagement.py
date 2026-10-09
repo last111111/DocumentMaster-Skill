@@ -57,11 +57,17 @@ DEFAULTS = {
                           "date_suffix": True},
     "naming": {"forbidden_chars": [" ", "(", ")", ":"]},
     "git": {"max_file_mb": 20,
-            "binary_ext": [".npy", ".npz", ".h5", ".hdf5", ".nii", ".nii.gz", ".BRIK", ".BRIK.gz", ".HEAD", ".mat"]},
-    "paths": {"legacy_patterns": ["/mnt/mydisk"], "legacy_level": "red", "scan_dirs": ["skills", "analyses/*/code"],
-              "scan_ext": [".py", ".sh", ".R", ".txt", ".csv", ".tsv", ".json", ".env"]},
+            "binary_ext": [".npy", ".npz", ".h5", ".hdf5", ".nii", ".nii.gz", ".BRIK", ".BRIK.gz", ".HEAD", ".mat",
+                           ".parquet", ".pkl", ".pt", ".ckpt", ".zip", ".tar", ".tar.gz", ".tar.xz"]},
+    "paths": {"legacy_patterns": [], "legacy_level": "red", "scan_dirs": ["skills", "analyses/*/code"],
+              "scan_ext": [".py", ".sh", ".R", ".txt", ".csv", ".tsv", ".json", ".env"],
+              "external_markers": ["外部", "external", "remote"]},
     "ids": {"prefix": {"inputs": "I", "derivatives": "D", "analyses": "A", "writing": "W", "archive": "X"}},
-    "checks": {"scripts": ["writing/abstract/check_readme.py", "abstract/check_readme.py"], "skills_dir": "skills"},
+    "checks": {"scripts": [], "skills_dir": "skills"},
+    "rebuild": {"inputs": ["raw", "input", "source", "data", "subject", "sample", "reference", "atlas", "mask"],
+                "derivatives": ["result", "output", "deriv", "processed", "feature", "model"],
+                "writing": ["abstract", "paper", "manuscript", "review", "writing", "brief", "report", "slides"],
+                "archive": ["old", "test", "archive", "backup", "legacy", "deprecated", "tmp"]},
     "agents": {"instructions": "AGENTS.md", "aliases": ["CLAUDE.md", "GEMINI.md"]},
     "subjects": {"file": "", "column": "subject"},
     "plan": {"scan_depth": 3},
@@ -645,7 +651,7 @@ def status_findings(cfg, staged: bool = False) -> list[tuple]:
             m = REF_RE.match(l)
             pth = (l[m.end():] if m else l).strip()
             pth = re.split(r"\s[（(#]", pth)[0].strip()
-            if not pth or pth.upper().startswith("TODO") or pth.startswith("/") or "外部" in l or "jetstream" in l.lower():
+            if not pth or pth.upper().startswith("TODO") or pth.startswith("/") or any(m.lower() in l.lower() for m in cfg["paths"].get("external_markers", [])):
                 continue
             pat = re.sub(r"<[^>]+>", "*", pth)
             pat = re.sub(r"\{[^}]*\}", "*", pat)
@@ -1375,14 +1381,10 @@ def _guess(e, cfg) -> tuple[str, str, str, str]:
     sub = {x.name for x in os.scandir(e.path)}
     if DATE_RE.search(n) or {"code", "stats"} <= sub or "REPORT.md" in sub:
         return "mv", f"analyses/{n}", "analysis", "analysis-shaped (code/stats/REPORT or dated)"
-    if any(k in low for k in ("mask", "atlas", "raw", "input", "subject", "glm", "tent", "bids")):
-        return "mv", f"inputs/{n}", "input", "input-like name"
-    if any(k in low for k in ("abstract", "paper", "review", "writing", "brief", "manuscript")):
-        return "mv", f"writing/{n}", "writing", "writing-like name"
-    if any(k in low for k in ("old", "test", "archive", "backup", "legacy", "deprecated")):
-        return "mv", f"archive/{n}", "archive", "archive-like name"
-    if any(k in low for k in ("result", "gradient", "deriv", "output", "fc", "matrix")):
-        return "mv", f"derivatives/{n}", "derivative", "derivative-like name"
+    hints = cfg.get("rebuild", {})
+    for layer, role in (("inputs", "input"), ("writing", "writing"), ("archive", "archive"), ("derivatives", "derivative")):
+        if any(k.lower() in low for k in hints.get(layer, [])):
+            return "mv", f"{layer}/{n}", role, f"{layer}-like name ([rebuild] {layer} hints)"
     return "ask", "", "", "unclassified"
 
 
