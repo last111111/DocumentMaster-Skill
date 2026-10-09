@@ -9,7 +9,7 @@ Works with any agent that can run a shell (Claude Code, Codex, Gemini CLI, Curso
 ## Install into a project / 装进一个项目
 
 ```sh
-git clone https://github.com/<you>/DocumentMaster-Skill
+git clone https://github.com/last111111/DocumentMaster-Skill
 python3 DocumentMaster-Skill/DocsManagement.py install /path/to/project   # copies the four code files
 cd /path/to/project
 python3 DocsManagement/DocsManagement.py init --layout --install-launcher   # config, registry, hook, AGENTS.md, git init
